@@ -181,9 +181,12 @@
                             </div>
                             <!-- Import/Export buttons kept for backup purposes -->
                             <div class="grid grid-cols-2 gap-2">
-                                <button id="exportAllBtn" class="w-full px-3 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200">JSONバックアップ</button>
-                                <button id="resetBtn" class="w-full px-3 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 disabled:hover:bg-red-100">この校舎をリセット</button>
+                                <button id="exportAllBtn" class="w-full px-3 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200">JSON保存</button>
+                                <button id="importAllBtn" class="w-full px-3 py-2 bg-green-100 text-green-700 rounded-md hover:bg-green-200">JSON復元</button>
                             </div>
+                            <input type="file" id="importFile" class="hidden" accept=".json">
+                            
+                            <button id="resetBtn" class="w-full mt-2 px-3 py-2 bg-red-100 text-red-700 rounded-md hover:bg-red-200 disabled:hover:bg-red-100">この校舎をリセット</button>
                             <button id="exportPdfBtn" class="w-full mt-2 px-3 py-2 bg-indigo-100 text-indigo-700 rounded-md hover:bg-indigo-200">PDFでエクスポート</button>
                         </div>
                     </div>
@@ -343,6 +346,8 @@
             const classroomSelector = document.getElementById('classroomSelector');
             const sidePanel = document.getElementById('sidePanel');
             const exportAllBtn = document.getElementById('exportAllBtn');
+            const importAllBtn = document.getElementById('importAllBtn');
+            const importFile = document.getElementById('importFile');
             const exportPdfBtn = document.getElementById('exportPdfBtn');
             const loadingOverlay = document.getElementById('loadingOverlay');
             
@@ -391,7 +396,6 @@
                     const appId = typeof __app_id !== 'undefined' ? __app_id : 'robodan-shared-v1';
 
                     // Auth Logic
-                    // 認証エラーを捕捉し、環境提供トークンが不一致の場合に匿名認証へフォールバックする
                     try {
                         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
                             await signInWithCustomToken(auth, __initial_auth_token);
@@ -404,7 +408,6 @@
                     }
 
                     // Firestore Reference (PUBLIC DATA)
-                    // We use the configured appId (or default) to separate data environments if needed
                     publicDataRef = doc(db, 'artifacts', appId, 'public', 'data', 'robodan_app_data', 'shared_schedule');
 
                     // Realtime Listener
@@ -1337,6 +1340,43 @@
                 a.download = 'robodan-all-schools-backup.json';
                 a.click();
                 URL.revokeObjectURL(a.href);
+            });
+
+            // Import Logic
+            importAllBtn.addEventListener('click', () => {
+                importFile.click();
+            });
+
+            importFile.addEventListener('change', (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+
+                const reader = new FileReader();
+                reader.onload = async (ev) => {
+                    try {
+                        const importedData = JSON.parse(ev.target.result);
+                        if (importedData && importedData.schools) {
+                            if (confirm('現在のデータを上書きして、このバックアップから復元しますか？\nクラウド上のデータも更新されます。')) {
+                                appData = importedData;
+                                if (!appData.schools.find(s => s.id === ALL_SCHOOLS_ID)) {
+                                     appData.schools.unshift({ id: ALL_SCHOOLS_ID, name: 'すべての校舎' });
+                                }
+                                
+                                saveData(true); // Save imported data to cloud
+                                renderSchoolTabs();
+                                switchSchoolTab(appData.currentSchoolId || ALL_SCHOOLS_ID);
+                                alert('インポートが完了しました。');
+                            }
+                        } else {
+                            alert('無効なデータファイルです。');
+                        }
+                    } catch (err) {
+                        console.error(err);
+                        alert('ファイルの読み込みに失敗しました。');
+                    }
+                };
+                reader.readAsText(file);
+                e.target.value = ''; // Reset input
             });
 
             // Start Firebase
