@@ -179,10 +179,17 @@
                             <div class="p-2 bg-yellow-50 text-yellow-800 rounded mb-2 border border-yellow-200">
                                 ☁️ クラウド同期中 (自動保存)
                             </div>
-                            <!-- Import/Export buttons kept for backup purposes -->
+                            
+                            <!-- School Import/Export -->
                             <div class="grid grid-cols-2 gap-2">
-                                <button id="exportAllBtn" class="w-full px-3 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200">JSON保存</button>
-                                <button id="importAllBtn" class="w-full px-3 py-2 bg-green-100 text-green-700 rounded-md hover:bg-green-200">JSON復元</button>
+                                <button id="exportSchoolBtn" class="w-full px-3 py-2 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200 disabled:hover:bg-blue-100">校舎JSON保存</button>
+                                <button id="importSchoolBtn" class="w-full px-3 py-2 bg-green-100 text-green-700 rounded-md hover:bg-green-200 disabled:hover:bg-green-100">校舎JSON復元</button>
+                            </div>
+
+                            <!-- All Data Import/Export buttons kept for backup purposes -->
+                            <div class="grid grid-cols-2 gap-2">
+                                <button id="exportAllBtn" class="w-full px-3 py-2 bg-slate-100 text-slate-700 rounded-md hover:bg-slate-200">全データ保存</button>
+                                <button id="importAllBtn" class="w-full px-3 py-2 bg-slate-100 text-slate-700 rounded-md hover:bg-slate-200">全データ復元</button>
                             </div>
                             <input type="file" id="importFile" class="hidden" accept=".json">
                             
@@ -347,6 +354,8 @@
             const sidePanel = document.getElementById('sidePanel');
             const exportAllBtn = document.getElementById('exportAllBtn');
             const importAllBtn = document.getElementById('importAllBtn');
+            const exportSchoolBtn = document.getElementById('exportSchoolBtn');
+            const importSchoolBtn = document.getElementById('importSchoolBtn');
             const importFile = document.getElementById('importFile');
             const exportPdfBtn = document.getElementById('exportPdfBtn');
             const loadingOverlay = document.getElementById('loadingOverlay');
@@ -357,6 +366,7 @@
             let currentClassroomId = 'classroom1';
             let editingClassId = null;
             let draggedTabId = null;
+            let importMode = 'all'; // 'all' or 'school'
 
             // --- HELPER FUNCTIONS ---
             function getCurrentSchool() {
@@ -1342,8 +1352,32 @@
                 URL.revokeObjectURL(a.href);
             });
 
+            // School-specific export
+            exportSchoolBtn.addEventListener('click', () => {
+                const school = getCurrentSchool();
+                if (!school || school.id === ALL_SCHOOLS_ID) return;
+                const schoolDataStr = JSON.stringify(school, null, 2);
+                const blob = new Blob([schoolDataStr], {type: "application/json"});
+                const a = document.createElement('a');
+                a.href = URL.createObjectURL(blob);
+                a.download = `robodan-schedule-${school.name}.json`;
+                a.click();
+                URL.revokeObjectURL(a.href);
+            });
+
             // Import Logic
             importAllBtn.addEventListener('click', () => {
+                importMode = 'all';
+                importFile.click();
+            });
+
+            importSchoolBtn.addEventListener('click', () => {
+                const school = getCurrentSchool();
+                if (!school || school.id === ALL_SCHOOLS_ID) {
+                    alert('個別の校舎を選択してください。');
+                    return;
+                }
+                importMode = 'school';
                 importFile.click();
             });
 
@@ -1355,20 +1389,41 @@
                 reader.onload = async (ev) => {
                     try {
                         const importedData = JSON.parse(ev.target.result);
-                        if (importedData && importedData.schools) {
-                            if (confirm('現在のデータを上書きして、このバックアップから復元しますか？\nクラウド上のデータも更新されます。')) {
-                                appData = importedData;
-                                if (!appData.schools.find(s => s.id === ALL_SCHOOLS_ID)) {
-                                     appData.schools.unshift({ id: ALL_SCHOOLS_ID, name: 'すべての校舎' });
+                        
+                        if (importMode === 'all') {
+                            if (importedData && importedData.schools) {
+                                if (confirm('現在のデータを上書きして、このバックアップから復元しますか？\nクラウド上のデータも更新されます。')) {
+                                    appData = importedData;
+                                    if (!appData.schools.find(s => s.id === ALL_SCHOOLS_ID)) {
+                                         appData.schools.unshift({ id: ALL_SCHOOLS_ID, name: 'すべての校舎' });
+                                    }
+                                    saveData(true);
+                                    renderSchoolTabs();
+                                    switchSchoolTab(appData.currentSchoolId || ALL_SCHOOLS_ID);
+                                    alert('全データのインポートが完了しました。');
                                 }
-                                
-                                saveData(true); // Save imported data to cloud
-                                renderSchoolTabs();
-                                switchSchoolTab(appData.currentSchoolId || ALL_SCHOOLS_ID);
-                                alert('インポートが完了しました。');
+                            } else {
+                                alert('無効な全データファイルです。');
                             }
-                        } else {
-                            alert('無効なデータファイルです。');
+                        } else if (importMode === 'school') {
+                            const currentSchool = getCurrentSchool();
+                            if (importedData && importedData.schedules && importedData.promotedClasses) {
+                                if (confirm(`現在の校舎「${currentSchool.name}」のデータを、ファイルの内容で上書きしますか？\nクラウド上のデータも更新されます。`)) {
+                                    // Overwrite current school data but keep ID if possible to maintain tab selection, 
+                                    // or just replace properties. Here we replace content properties.
+                                    currentSchool.name = importedData.name || currentSchool.name;
+                                    currentSchool.schedules = importedData.schedules;
+                                    currentSchool.promotedClasses = importedData.promotedClasses;
+                                    
+                                    saveData(true);
+                                    renderSchoolTabs(); // Name might have changed
+                                    schoolNameDisplay.textContent = currentSchool.name;
+                                    switchSemester(currentSemesterId, true); // Refresh view
+                                    alert(`「${currentSchool.name}」のインポートが完了しました。`);
+                                }
+                            } else {
+                                alert('無効な校舎データファイルです。');
+                            }
                         }
                     } catch (err) {
                         console.error(err);
