@@ -298,14 +298,15 @@
         document.addEventListener('DOMContentLoaded', async () => {
             // --- CONSTANTS ---
             const ALL_SCHOOLS_ID = 'all-schools-dashboard';
+            // maxSemesters: 1 semester = 6 months
             const courseInfo = {
-                'キンダー': { duration: 50, style: 'course-kinder' },
-                'ワンダー': { duration: 50, style: 'course-wonder' },
-                'ビギナー': { duration: 50, style: 'course-beginner' },
-                'チャレンジャー': { duration: 80, style: 'course-challenger' },
-                'クリエイター': { duration: 80, style: 'course-creator' },
-                'イノベーター': { duration: 80, style: 'course-innovator' },
-                'イノベーターNEXT': { duration: 80, style: 'course-innovator-next' }
+                'キンダー': { duration: 50, style: 'course-kinder', maxSemesters: 1 },
+                'ワンダー': { duration: 50, style: 'course-wonder', maxSemesters: 1 },
+                'ビギナー': { duration: 50, style: 'course-beginner', maxSemesters: 2 },
+                'チャレンジャー': { duration: 80, style: 'course-challenger', maxSemesters: 2 },
+                'クリエイター': { duration: 80, style: 'course-creator', maxSemesters: 2 },
+                'イノベーター': { duration: 80, style: 'course-innovator', maxSemesters: 2 },
+                'イノベーターNEXT': { duration: 80, style: 'course-innovator-next', maxSemesters: 2 }
             };
             const promotionMap = {
                 'キンダー': 'ビギナー',
@@ -1000,40 +1001,48 @@
                     const prevSchedule = classroomSchedules[prevSemester.id] || [];
                     
                     const isSpringToAutumn = prevSemester.id.includes('spring');
+                    // Determine which promotion timing triggers a promotion
+                    // Spring(Apr) -> Autumn(Oct): '10月' timing promotes
+                    // Autumn(Oct) -> Spring(Apr): '4月' timing promotes
+                    
                     const nextSemesterSchedule = [];
                     
                     prevSchedule.forEach(item => {
-                        let nextCourse = item.course, semestersInCourse = item.semestersInCourse || 1;
-                        const shouldPromote = (isSpringToAutumn && item.promotionTiming === '10月') || (!isSpringToAutumn && item.promotionTiming === '4月');
+                        let nextCourse = item.course;
+                        let semestersInCourse = item.semestersInCourse || 1;
+                        let shouldPromote = false;
+
+                        // Check if this transition matches the student's promotion timing
+                        const isTimingMatch = (isSpringToAutumn && item.promotionTiming === '10月') || 
+                                              (!isSpringToAutumn && item.promotionTiming === '4月');
+
+                        if (isTimingMatch) {
+                            // Check max duration
+                            const maxSemesters = courseInfo[item.course].maxSemesters;
+                            if (semestersInCourse >= maxSemesters) {
+                                shouldPromote = true;
+                            }
+                        }
 
                         if (shouldPromote) {
-                            // イノベーターNEXTは1年（2学期）で終了
-                            if (item.course === 'イノベーターNEXT' && semestersInCourse >= 2) {
-                                return;
+                            // Special Case: Innovator NEXT expires
+                            if (item.course === 'イノベーターNEXT') {
+                                // Do not add to next semester (effectively deletes the class)
+                                return; 
                             }
 
-                            if (item.course === 'イノベーター' && semestersInCourse >= 2) {
-                                // イノベーター終了 -> NEXTへ
-                                const promotedCourse = promotionMap[item.course];
-                                if (!promotedCourse) return;
-                                
+                            const promotedCourse = promotionMap[item.course];
+                            if (promotedCourse) {
                                 nextCourse = promotedCourse;
                                 semestersInCourse = 1;
                             } else {
-                                const promotedCourse = promotionMap[item.course];
-                                // 進級先があれば進級
-                                if (promotedCourse) {
-                                    nextCourse = promotedCourse;
-                                    semestersInCourse = 1;
-                                } else {
-                                    // なければ継続
-                                    nextCourse = item.course;
-                                    semestersInCourse = semestersInCourse + 1;
-                                }
+                                // No promotion target defined (e.g. max level reached but not Innovator NEXT?), stay in current
+                                semestersInCourse++;
                             }
                         } else {
                             semestersInCourse++;
                         }
+                        
                         nextSemesterSchedule.push({ ...item, course: nextCourse, semestersInCourse, isPromoted: true });
                     });
                     classroomSchedules[semesterId] = nextSemesterSchedule;
