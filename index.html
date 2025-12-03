@@ -1371,6 +1371,50 @@
             exportPdfBtn.addEventListener('click', handleExportPdf);
             [capacityInput, studentsInput].forEach(el => el.addEventListener('input', updateAvailableSlots));
             
+            // --- FIXED: Permanent Delete Button Logic ---
+            permanentDeleteBtn.addEventListener('click', () => {
+                if (!editingClassId) return;
+                if (!confirm('このクラスをこの学期以降、すべての学期から完全に削除します。この操作は元に戻せません。よろしいですか？')) return;
+                
+                const school = getCurrentSchool();
+                if (!school) return;
+
+                // Find classroomId from data instead of DOM to be robust
+                let originClassroomId = null;
+                // Check schedules to find which classroom this class belongs to
+                if (school.schedules.classroom1[currentSemesterId]?.some(c => c.id === editingClassId)) {
+                    originClassroomId = 'classroom1';
+                } else if (school.schedules.classroom2[currentSemesterId]?.some(c => c.id === editingClassId)) {
+                    originClassroomId = 'classroom2';
+                }
+                
+                if (!originClassroomId) {
+                    // Check promoted classes as fallback
+                    if (school.promotedClasses.classroom1[currentSemesterId]?.some(c => c.id === editingClassId)) {
+                        originClassroomId = 'classroom1';
+                    } else if (school.promotedClasses.classroom2[currentSemesterId]?.some(c => c.id === editingClassId)) {
+                        originClassroomId = 'classroom2';
+                    }
+                }
+
+                if (!originClassroomId) {
+                     console.error("Classroom not found for class deletion.");
+                     return;
+                }
+
+                const currentSemesterIndex = semesters.findIndex(s => s.id === currentSemesterId);
+                for (let i = currentSemesterIndex; i < semesters.length; i++) {
+                    const semesterId = semesters[i].id;
+                    if (school.schedules[originClassroomId]?.[semesterId]) school.schedules[originClassroomId][semesterId] = school.schedules[originClassroomId][semesterId].filter(c => c.id !== editingClassId);
+                    if (school.promotedClasses[originClassroomId]?.[semesterId]) school.promotedClasses[originClassroomId][semesterId] = school.promotedClasses[originClassroomId][semesterId].filter(c => c.id !== editingClassId);
+                }
+                saveData(); // Auto-save
+                closeDetailModal();
+                loadSchedule(currentSemesterId);
+                updatePromotedBank(currentSemesterId);
+            });
+            // --- End of Fix ---
+            
             exportAllBtn.addEventListener('click', () => {
                 const allDataStr = JSON.stringify(appData, null, 2);
                 const blob = new Blob([allDataStr], {type: "application/json"});
